@@ -3,7 +3,7 @@ from typing import Any
 
 import tomlkit
 
-DEFAULT_SCHEMA_VERSION = "1.0.0"
+from papyrus.core.constants import SCHEMA_VERSION
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "settings": {"db_path": "./db", "primary_db": "./db", "chunk_size": 60},
@@ -46,13 +46,9 @@ def _merge_defaults(raw: dict[str, Any]) -> dict[str, Any]:
             config[section] = {**defaults, **(raw.get(section, {}))}
         else:
             config[section] = raw.get(section, defaults)
-    config["schema_version"] = raw.get("schema_version", DEFAULT_SCHEMA_VERSION)
+    config["schema_version"] = raw.get("schema_version", SCHEMA_VERSION)
     return config
 
 
 def db_path(config: dict[str, Any]) -> Path:
     return config["_kb_root"] / config["settings"]["db_path"]
-
-
-def embeddings_provider(config: dict[str, Any]) -> str:
-    return config["embeddings"].get("provider", "openai")

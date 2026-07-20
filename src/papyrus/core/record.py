@@ -1,10 +1,10 @@
 import json
+import shutil
 from pathlib import Path
 from typing import Any
 
 from papyrus.core.citekey import generate_cite_key
-
-SCHEMA_VERSION = "1.0.0"
+from papyrus.core.constants import ABSTRACT_FILE, CANDIDATE_FILE, RECORD_FILE, SCHEMA_VERSION
 
 
 def create_record(
@@ -92,12 +92,19 @@ def remove_from_staging(pmid: str, staging_root: Path):
             continue
         candidate_dir = run_dir / pmid
         if candidate_dir.is_dir():
-            import shutil
-
             shutil.rmtree(candidate_dir)
         remaining = [p for p in run_dir.iterdir() if p.is_dir()]
         if not remaining:
-            import shutil
-
             shutil.rmtree(run_dir)
             return
+
+
+def load_record(record_dir: Path) -> dict[str, Any]:
+    with open(record_dir / RECORD_FILE) as f:
+        return json.load(f)
+
+
+def save_record(record_dir: Path, rec: dict[str, Any]) -> None:
+    with open(record_dir / RECORD_FILE, "w") as f:
+        json.dump(rec, f, indent=2, ensure_ascii=False)
+        f.write("\n")

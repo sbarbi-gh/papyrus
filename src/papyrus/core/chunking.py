@@ -1,6 +1,9 @@
+import hashlib
 import json
 import re
 from pathlib import Path
+
+from papyrus.core.constants import CHUNK_INDEX_FILE, FULLTEXT_MD, SCHEMA_VERSION
 
 
 _NON_CONTENT_PATTERNS = [
@@ -84,13 +87,11 @@ def write_chunks(
         text = f.read()
 
     chunks = chunk_markdown(text, target_bytes, overlap_bytes, max_chunks)
-    import hashlib
-
     source_hash = hashlib.sha256(text.encode()).hexdigest()
 
     chunk_index = {
-        "schema_version": "1.0.0",
-        "source_file": "fulltext.md",
+        "schema_version": SCHEMA_VERSION,
+        "source_file": FULLTEXT_MD,
         "source_hash": f"sha256:{source_hash}",
         "chunk_method": "section",
         "chunks": [],
