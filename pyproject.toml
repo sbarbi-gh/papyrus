@@ -1,0 +1,31 @@
+[project]
+name = "papyrus"
+version = "0.1.0"
+description = "PubMed Knowledge Base Manager"
+requires-python = ">=3.11"
+dependencies = [
+    "typer>=0.15",
+    "rich>=13",
+    "httpx>=0.28",
+    "openai>=1",
+    "tomlkit>=0.13",
+    "numpy>=2",
+    "pymupdf4llm>=1.28.0",
+    "python-dotenv>=1.2.2",
+]
+entry-points = { "console_scripts" = { "papyrus" = "papyrus.cli:main" } }
+
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
