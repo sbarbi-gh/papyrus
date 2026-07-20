@@ -5,7 +5,7 @@ from typing import Annotated, Optional
 import typer
 from rich.console import Console
 
-from papyrus.core.config import db_path, locate_kb_root
+from papyrus.core.config import db_path, load_config, locate_kb_root
 from papyrus.core.events import write_event
 from papyrus.core.record import (
     create_record,
@@ -31,7 +31,8 @@ def discard(
 ):
     """Discard an article and create a permanent record so it won't be re-proposed."""
     kb_root = locate_kb_root()
-    db_root = db_path({"settings": {"db_path": "./db"}, "_kb_root": kb_root})
+    config = load_config(kb_root)
+    db_root = db_path(config)
     staging_root = kb_root / "staging"
 
     record_path = db_root / pmid / "record.json"

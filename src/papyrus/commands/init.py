@@ -51,10 +51,17 @@ def init(
         json.dump(index, f, indent=2)
         f.write("\n")
 
-    method_toml = f'''schema_version = "1.0.0"
+    method_toml = f'''schema_version = "{SCHEMA_VERSION}"
 
 [settings]
 db_path = "./db"
+primary_db = "./db"
+chunk_size = 60
+
+[fulltext]
+max_attempts = 5
+backoff = "exponential"
+keep_on_wishlist = true
 
 [relevance]
 # TODO: derive from intent.md
@@ -62,14 +69,21 @@ db_path = "./db"
 [source_conversion]
 engine = "marker"
 fallback = "pymupdf"
+max_pages = 100
+image_handling = "reference"
+
+[chunking]
+method = "section"
+target_bytes = 2048
+overlap_bytes = 256
+max_chunks_per_article = 80
 
 [embeddings]
 model = "text-embedding-3-small"
 dimensions = 1536
 provider = "openai"
+batch_size = 50
 
-[fulltext]
-[chunking]
 [distillation]
 [concepts]
 [search]

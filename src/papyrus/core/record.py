@@ -27,7 +27,6 @@ def create_record(
         "schema_version": SCHEMA_VERSION,
         "id": cite_key,
         "type": "article-journal",
-        "PMID": pmid,
         "title": enrichment.get("title", ""),
         "author": [{"family": a["family"], "given": a["given"]} for a in authors],
         "issued": _make_issued(year),

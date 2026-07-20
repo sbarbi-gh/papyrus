@@ -1,3 +1,4 @@
+import json
 import re
 from pathlib import Path
 
@@ -36,8 +37,6 @@ def existing_cite_keys(db_root: Path) -> set[str]:
     for record_path in db_root.glob("*/record.json"):
         try:
             with open(record_path) as f:
-                import json
-
                 record = json.load(f)
             if "id" in record:
                 existing.add(record["id"])

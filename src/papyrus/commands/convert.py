@@ -1,3 +1,4 @@
+import hashlib
 import json
 from pathlib import Path
 from typing import Annotated
@@ -7,9 +8,60 @@ from rich.console import Console
 
 from papyrus.core.config import db_path, load_config, locate_kb_root
 from papyrus.core.events import write_event
+from papyrus.core.record import load_record, save_record
 
 app = typer.Typer()
 console = Console()
+
+
+def _source_hash(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _idempotent_check(md_path: Path, ci_path: Path) -> bool:
+    if not md_path.exists() or not ci_path.exists():
+        return False
+    with open(ci_path) as f:
+        ci = json.load(f)
+    stored = ci.get("source_hash", "")
+    _, _, expected = stored.partition("sha256:")
+    if not expected:
+        expected = stored
+    return expected == _source_hash(md_path)
+
+
+def _run_conversion(pdf_path: Path, md_path: Path, record_dir: Path, config: dict) -> int:
+    engine = config.get("source_conversion", {}).get("engine", "pymupdf")
+
+    if engine == "marker":
+        console.print("[dim]marker conversion not yet implemented, using pymupdf4llm[/dim]")
+        engine = "pymupdf"
+
+    if engine == "pymupdf":
+        try:
+            import pymupdf4llm
+        except ImportError:
+            console.print("[red]pymupdf4llm not installed. Run: uv add pymupdf4llm[/red]")
+            raise typer.Exit(code=1)
+
+        md_text = pymupdf4llm.to_markdown(str(pdf_path), write_images=False)
+        md_path.write_text(md_text, encoding="utf-8")
+
+        from papyrus.core.chunking import write_chunks
+
+        chunking_cfg = config.get("chunking", {})
+        write_chunks(
+            pmid=record_dir.name,
+            fulltext_path=md_path,
+            record_dir=record_dir,
+            target_bytes=chunking_cfg.get("target_bytes", 2048),
+            overlap_bytes=chunking_cfg.get("overlap_bytes", 256),
+            max_chunks=chunking_cfg.get("max_chunks_per_article", 80),
+        )
+        return engine
+    else:
+        console.print(f"[red]Unknown conversion engine: {engine}[/red]")
+        raise typer.Exit(code=1)
 
 
 @app.command()
@@ -34,57 +86,28 @@ def convert(
         console.print(f"[red]No fulltext.pdf for PMID {pmid}[/red]")
         raise typer.Exit(code=2)
 
-    engine = config.get("source_conversion", {}).get("engine", "pymupdf")
+    if _idempotent_check(md_path, ci_path):
+        console.print(f"[dim]db/{pmid}/fulltext.md already up-to-date[/dim]")
+        raise typer.Exit(code=0)
 
-    if engine == "marker":
-        console.print("[dim]marker conversion not yet implemented, using pymupdf4llm[/dim]")
-        engine = "pymupdf"
+    console.print(f"[dim]Converting db/{pmid}/fulltext.pdf → fulltext.md[/dim]")
+    engine = _run_conversion(pdf_path, md_path, record_dir, config)
 
-    if engine == "pymupdf":
-        try:
-            import pymupdf4llm
-        except ImportError:
-            console.print("[red]pymupdf4llm not installed. Run: uv add pymupdf4llm[/red]")
-            raise typer.Exit(code=1)
+    rec = load_record(record_dir)
+    rec["custom"]["materials"]["fulltext_md"] = "present"
+    rec["custom"]["materials"]["chunks"] = _count_chunks(ci_path)
+    save_record(record_dir, rec)
 
-        console.print(f"[dim]Converting db/{pmid}/fulltext.pdf → fulltext.md (pymupdf4llm)[/dim]")
-        md_text = pymupdf4llm.to_markdown(str(pdf_path), write_images=False)
+    write_event(kb_root, {
+        "kind": "source-converted",
+        "pmid": pmid,
+        "engine": "pymupdf4llm" if engine == "pymupdf" else engine,
+        "pages": _count_pdf_pages(pdf_path),
+        "n_chunks": rec["custom"]["materials"]["chunks"],
+    })
 
-        md_path.write_text(md_text, encoding="utf-8")
-
-        from papyrus.core.chunking import write_chunks
-
-        chunking_cfg = config.get("chunking", {})
-        write_chunks(
-            pmid=pmid,
-            fulltext_path=md_path,
-            record_dir=record_dir,
-            target_bytes=chunking_cfg.get("target_bytes", 2048),
-            overlap_bytes=chunking_cfg.get("overlap_bytes", 256),
-            max_chunks=chunking_cfg.get("max_chunks_per_article", 80),
-        )
-
-        with open(record_dir / "record.json") as f:
-            rec = json.load(f)
-        rec["custom"]["materials"]["fulltext_md"] = "present"
-        rec["custom"]["materials"]["chunks"] = _count_chunks(record_dir / "chunk_index.json")
-        with open(record_dir / "record.json", "w") as f:
-            json.dump(rec, f, indent=2, ensure_ascii=False)
-            f.write("\n")
-
-        write_event(kb_root, {
-            "kind": "source-converted",
-            "pmid": pmid,
-            "engine": "pymupdf4llm",
-            "pages": _count_pdf_pages(pdf_path),
-            "n_chunks": rec["custom"]["materials"]["chunks"],
-        })
-
-        n_chunks = rec["custom"]["materials"]["chunks"]
-        console.print(f"[green]db/{pmid}/fulltext.md  {n_chunks} chunks[/green]")
-    else:
-        console.print(f"[red]Unknown conversion engine: {engine}[/red]")
-        raise typer.Exit(code=1)
+    n_chunks = rec["custom"]["materials"]["chunks"]
+    console.print(f"[green]db/{pmid}/fulltext.md  {n_chunks} chunks[/green]")
 
 
 def _count_chunks(ci_path: Path) -> int:

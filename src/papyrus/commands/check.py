@@ -69,9 +69,6 @@ def check(
     # 12. staging coherence
     _check12(db_root, staging_root, results)
 
-    # Also check intent.md
-    _check_intent(kb_root, results)
-
     n_errors = sum(r.get("errors", 0) for r in results)
     n_warnings = sum(r.get("warnings", 0) for r in results)
     n_checks = len(results)
@@ -140,16 +137,16 @@ def _check1(kb_root: Path, db_root: Path, results: list[dict]):
     errors, warnings = [], []
     if not db_root.exists():
         errors.append("db/ directory not found")
-        _add_result(results, 1, "folder ↔ record", errors, warnings)
+        _add_result(results, 1, "folder ↔ record + intent.md", errors, warnings)
         return
     for d in db_root.iterdir():
         if not d.is_dir():
             continue
         if not (d / "record.json").exists():
             errors.append(f"db/{d.name}/ missing record.json")
-    # Check for record.json files without a db/ folder (orphan records)
-    # This can't happen with the folder-per-pmid structure, so it's a pass
-    _add_result(results, 1, "folder ↔ record", errors, warnings)
+    if not (kb_root / "intent.md").exists():
+        warnings.append("intent.md not found")
+    _add_result(results, 1, "folder ↔ record + intent.md", errors, warnings)
 
 
 def _check2(db_root: Path, results: list[dict]):
@@ -220,7 +217,7 @@ def _check4(config: dict, db_root: Path, method_path: Path, results: list[dict])
             continue
         rv = rec.get("schema_version", "")
         if rv and mt_version and rv != mt_version:
-            warnings.append(f"db/{d.name}/: schema_version {rv} != method.toml {mt_version}")
+            errors.append(f"db/{d.name}/: schema_version {rv} != method.toml {mt_version}")
     _add_result(results, 4, "record version ↔ method.toml version", errors, warnings)
 
 
@@ -453,10 +450,3 @@ def _check12(db_root: Path, staging_root: Path, results: list[dict]):
             if cand.name in db_pmids:
                 warnings.append(f"staging/{run_dir.name}/{cand.name}/: already in db/ (stale)")
     _add_result(results, 12, "staging coherence", errors, warnings)
-
-
-def _check_intent(kb_root: Path, results: list[dict]):
-    errors, warnings = [], []
-    if not (kb_root / "intent.md").exists():
-        warnings.append("intent.md not found")
-    _add_result(results, 13, "intent.md exists", errors, warnings)

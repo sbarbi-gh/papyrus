@@ -6,14 +6,14 @@ from typing import Annotated, Optional
 import typer
 from rich.console import Console
 
-from papyrus.core.config import db_path, locate_kb_root
+from papyrus.core.config import db_path, load_config, locate_kb_root
 from papyrus.core.events import write_event
-from papyrus.core.pubmed import efetch
 from papyrus.core.record import (
     create_record,
     load_enrichment_from_staging,
     remove_from_staging,
 )
+from papyrus.core.pubmed import efetch
 
 app = typer.Typer()
 console = Console()
@@ -37,7 +37,8 @@ def ingest(
     Otherwise fetches metadata from PubMed directly (seed/manual — bypasses screening).
     """
     kb_root = locate_kb_root()
-    db_root = db_path({"settings": {"db_path": "./db"}, "_kb_root": kb_root})
+    config = load_config(kb_root)
+    db_root = db_path(config)
     staging_root = kb_root / "staging"
 
     # Check if already in db
