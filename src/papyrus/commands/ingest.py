@@ -19,54 +19,24 @@ app = typer.Typer()
 console = Console()
 
 
-@app.command()
-def ingest(
-    pmid: Annotated[str, typer.Argument(help="PubMed ID to ingest")],
-    pdf: Annotated[
-        Optional[Path],
-        typer.Option("--pdf", help="Path to PDF for direct seed ingestion"),
-    ] = None,
-    via: Annotated[
-        str,
-        typer.Option("--via", help="Provenance tag (seed, manual, query)"),
-    ] = "",
-):
-    """Ingest an article into the database.
-
-    If the PMID exists in staging/, unstages it (screening flow).
-    Otherwise fetches metadata from PubMed directly (seed/manual — bypasses screening).
-    """
-    kb_root = locate_kb_root()
-    config = load_config(kb_root)
-    db_root = db_path(config)
-    staging_root = kb_root / "staging"
-
-    # Check if already in db
+def _ingest_one(
+    pmid: str,
+    enrichment: dict | None,
+    kb_root: Path,
+    db_root: Path,
+    staging_root: Path,
+    via: str,
+    pdf_path: Path | None,
+) -> int:
     record_path = db_root / pmid / "record.json"
     if record_path.exists():
         console.print(f"[yellow]PMID {pmid} already exists in db/[/yellow]")
-        raise typer.Exit(code=2)
+        return 2
 
-    # Try staging first
-    enrichment = load_enrichment_from_staging(pmid, staging_root)
-    mat_fulltext = "absent"
-
-    if enrichment is not None:
-        if not via:
-            via = "query"
-        console.print(f"[dim]Found in staging — unstaging[/dim]")
-    else:
-        if not via:
-            via = "seed"
-        console.print(f"[dim]Fetching metadata from PubMed[/dim]")
-        fetched = efetch([pmid])
-        if not fetched:
-            console.print(f"[red]PMID {pmid} not found in PubMed[/red]")
-            raise typer.Exit(code=3)
-        enrichment = fetched[0]
-
-    if pdf is not None:
+    if pdf_path is not None:
         mat_fulltext = "present"
+    else:
+        mat_fulltext = "absent"
 
     record_dir = create_record(
         pmid=pmid,
@@ -76,9 +46,9 @@ def ingest(
         materials_fulltext=mat_fulltext,
     )
 
-    if pdf is not None:
+    if pdf_path is not None:
         dest = record_dir / "fulltext.pdf"
-        shutil.copy2(str(pdf), str(dest))
+        shutil.copy2(str(pdf_path), str(dest))
 
     if enrichment is not None:
         remove_from_staging(pmid, staging_root)
@@ -88,5 +58,94 @@ def ingest(
         cite_key = json.load(f).get("id", "?")
 
     write_event(kb_root, {"kind": "ingest", "pmid": pmid, "via": via})
-
     console.print(f"[green]{record_dir.relative_to(kb_root)}/  {cite_key} (via: {via})[/green]")
+    return 0
+
+
+@app.command()
+def ingest(
+    pmid: Annotated[
+        str,
+        typer.Argument(
+            help="PubMed ID(s) to ingest, comma-separated (e.g. '123456,789012')"
+        ),
+    ],
+    pdf: Annotated[
+        Optional[Path],
+        typer.Option("--pdf", help="Path to PDF (only with a single PMID)"),
+    ] = None,
+    via: Annotated[
+        str,
+        typer.Option("--via", help="Provenance tag (seed, manual, query)"),
+    ] = "",
+):
+    """Ingest one or more articles into the database.
+
+    If a PMID exists in staging/, it is unstaged (screening flow).
+    Otherwise metadata is fetched from PubMed.
+    When multiple PMIDs are given, they are batch-fetched from PubMed for speed.
+    """
+    kb_root = locate_kb_root()
+    config = load_config(kb_root)
+    db_root = db_path(config)
+    staging_root = kb_root / "staging"
+
+    pmids = [p.strip() for p in pmid.split(",") if p.strip()]
+    if not pmids:
+        console.print("[red]No PMIDs provided[/red]")
+        raise typer.Exit(code=2)
+
+    if pdf is not None and len(pmids) > 1:
+        console.print("[red]--pdf can only be used with a single PMID[/red]")
+        raise typer.Exit(code=2)
+
+    if not via:
+        if len(pmids) == 1 and load_enrichment_from_staging(pmids[0], staging_root):
+            via = "query"
+        else:
+            via = "seed"
+
+    staging_pmids: dict[str, dict] = {}
+    fetch_pmids: list[str] = []
+
+    for p in pmids:
+        enrich = load_enrichment_from_staging(p, staging_root)
+        if enrich is not None:
+            staging_pmids[p] = enrich
+        else:
+            fetch_pmids.append(p)
+
+    results: dict[str, dict | None] = {}
+    results.update(staging_pmids)
+
+    if fetch_pmids:
+        console.print(
+            f"[dim]Fetching metadata for {len(fetch_pmids)} PMID(s) from PubMed...[/dim]"
+        )
+        fetched = efetch(fetch_pmids)
+        fetched_map = {f["pmid"]: f for f in fetched}
+        for p in fetch_pmids:
+            if p in fetched_map:
+                results[p] = fetched_map[p]
+            else:
+                results[p] = None
+                console.print(f"[red]PMID {p} not found in PubMed[/red]")
+
+    ok, skip, not_found = 0, 0, 0
+    for p in pmids:
+        enrich = results.get(p)
+        if enrich is None:
+            not_found += 1
+            continue
+        code = _ingest_one(p, enrich, kb_root, db_root, staging_root, via, pdf if len(pmids) == 1 else None)
+        if code == 0:
+            ok += 1
+        elif code == 2:
+            skip += 1
+
+    suffix = ""
+    if skip:
+        suffix += f", {skip} already existed"
+    if not_found:
+        suffix += f", {not_found} not found"
+    console.print(f"[bold green]{ok} ingested[/bold green]{suffix}")

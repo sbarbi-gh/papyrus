@@ -189,15 +189,24 @@ def _embed_chunks(kb_root, record_dir, rec, provider, model, dims, pmid):
     with open(ci_path) as f:
         ci = json.load(f)
     chunk_defs = ci.get("chunks", [])
-    texts = []
-    for cd in chunk_defs:
-        texts.append(fulltext[cd["start_byte"] : cd["end_byte"]])
+    raw_texts = [fulltext[cd["start_byte"] : cd["end_byte"]] for cd in chunk_defs]
+    nonempty_idx = [i for i, t in enumerate(raw_texts) if t.strip()]
+    texts = [raw_texts[i] for i in nonempty_idx]
+    skipped = len(raw_texts) - len(texts)
 
-    console.print(f"[dim]Embedding {len(texts)} chunks for PMID {pmid} (model: {model})[/dim]")
+    console.print(
+        f"[dim]Embedding {len(texts)} chunks for PMID {pmid} "
+        f"(model: {model}, {skipped} empty skipped)[/dim]"
+    )
     vectors = provider.embed(texts)
 
     with open(chunks_path, "w") as f:
-        for cd, vec, txt in zip(chunk_defs, vectors, texts):
+        vec_iter = iter(vectors)
+        for i, cd in enumerate(chunk_defs):
+            if i not in nonempty_idx:
+                continue
+            txt = raw_texts[i]
+            vec = next(vec_iter)
             line = {
                 "chunk_id": cd["chunk_id"],
                 "text": txt,
