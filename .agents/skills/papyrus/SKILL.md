@@ -26,6 +26,27 @@ distilling articles, curating concepts, writing digests — is performed by you
 The agent ↔ CLI protocol is the filesystem. No command blocks on input; every
 command runs to completion.
 
+## Setup
+
+The CLI lives in a git repo. If `papyrus` is not on PATH, install it in the
+current KB (or any Python project) with:
+
+```bash
+uv add git+https://git.sbarbi.it/sbarbit/papyrus.git
+```
+
+Then run commands as:
+
+```bash
+uv run papyrus <cmd>
+```
+
+The repo URL for cloning or adding is:
+
+```
+https://git.sbarbi.it/sbarbit/papyrus.git
+```
+
 ## Orientation
 
 Always start by locating the KB root. It's the directory containing
