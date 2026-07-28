@@ -155,8 +155,8 @@ def notify(
 
     sender = notifications.get("from", "")
     if not sender:
-        console.print("[red][notifications].from is empty in method.toml[/red]")
-        raise typer.Exit(code=1)
+        sender = f"{kb_root.name}@sbarbi.it"
+        console.print(f"[dim]Using derived sender: {sender}[/dim]")
 
     recipients = notifications.get("to", [])
     if not recipients:
