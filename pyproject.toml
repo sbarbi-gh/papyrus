@@ -12,6 +12,7 @@ dependencies = [
     "numpy>=2",
     "pymupdf4llm>=1.28.0",
     "python-dotenv>=1.2.2",
+    "mistune>=3.3.4",
 ]
 entry-points = { "console_scripts" = { "papyrus" = "papyrus.cli:main" } }
 

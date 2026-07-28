@@ -1,3 +1,4 @@
+import mistune
 import os
 from pathlib import Path
 from typing import Annotated, Optional
@@ -20,67 +21,6 @@ def _digests(kb_root: Path) -> list[Path]:
     if not updates_dir.exists():
         return []
     return sorted(updates_dir.glob("*.md"), key=lambda p: p.name, reverse=True)
-
-
-def _markdown_to_html(text: str) -> str:
-    lines = text.split("\n")
-    html = []
-    in_para = False
-
-    for line in lines:
-        stripped = line.strip()
-        if not stripped:
-            if in_para:
-                html.append("</p>")
-                in_para = False
-            continue
-        if stripped.startswith("# "):
-            if in_para:
-                html.append("</p>")
-                in_para = False
-            html.append(f"<h1>{stripped[2:]}</h1>")
-        elif stripped.startswith("## "):
-            if in_para:
-                html.append("</p>")
-                in_para = False
-            html.append(f"<h2>{stripped[3:]}</h2>")
-        elif stripped.startswith("### "):
-            if in_para:
-                html.append("</p>")
-                in_para = False
-            html.append(f"<h3>{stripped[4:]}</h3>")
-        elif stripped.startswith("---"):
-            if in_para:
-                html.append("</p>")
-                in_para = False
-            html.append("<hr>")
-        elif stripped.startswith("- ") or stripped.startswith("* "):
-            if in_para:
-                html.append("</p>")
-                in_para = False
-            html.append(f"<li>{stripped[2:]}</li>")
-        else:
-            if not in_para:
-                html.append("<p>")
-                in_para = True
-            else:
-                html.append("<br>")
-            html.append(stripped)
-
-    if in_para:
-        html.append("</p>")
-
-    return "\n".join(html)
-
-
-def _subject_from_digest(path: Path) -> str:
-    content = path.read_text().strip()
-    kb_name = path.parent.parent.name
-    for line in content.split("\n"):
-        stripped = line.strip()
-        if stripped.startswith("# "):
-            return f"[{kb_name}] {stripped[2:]}"
-    return f"[{kb_name}] Digest {path.stem}"
 
 
 @app.command()
@@ -164,11 +104,12 @@ def notify(
         raise typer.Exit(code=1)
 
     subject = _subject_from_digest(digest_path)
+    html_body = mistune.html(content)
     html = f"""<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"></head>
 <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 640px; margin: 0 auto; padding: 2em; line-height: 1.6; color: #1a1a1a;">
-{_markdown_to_html(content)}
+{html_body}
 </body>
 </html>"""
 
