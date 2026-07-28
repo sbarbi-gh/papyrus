@@ -23,6 +23,16 @@ def _digests(kb_root: Path) -> list[Path]:
     return sorted(updates_dir.glob("*.md"), key=lambda p: p.name, reverse=True)
 
 
+def _subject_from_digest(path: Path) -> str:
+    content = path.read_text().strip()
+    kb_name = path.parent.parent.name
+    for line in content.split("\n"):
+        stripped = line.strip()
+        if stripped.startswith("# "):
+            return f"[{kb_name}] {stripped[2:]}"
+    return f"[{kb_name}] Digest {path.stem}"
+
+
 @app.command()
 def notify(
     digest: Annotated[
