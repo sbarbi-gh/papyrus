@@ -15,6 +15,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "distillation": {},
     "concepts": {"max_concepts": 150, "min_articles_per_concept": 2, "allow_orphan": False},
     "search": {"consolidated_index": True, "index_format": "lance"},
+    "notifications": {"enabled": False, "provider": "resend", "from": "", "to": []},
     "queries": [],
 }
 

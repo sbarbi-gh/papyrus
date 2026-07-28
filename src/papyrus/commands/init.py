@@ -87,6 +87,12 @@ batch_size = 50
 [distillation]
 [concepts]
 [search]
+
+[notifications]
+enabled = false
+provider = "resend"
+from = ""
+to = []
 '''
     with open(cwd / "method.toml", "w") as f:
         f.write(method_toml)
@@ -95,6 +101,7 @@ batch_size = 50
 # .env is git-ignored; never commit it
 OPENAI_API_KEY=sk-...
 NCBI_API_KEY=
+RESEND_API_KEY=
 """
     with open(cwd / ".env.example", "w") as f:
         f.write(env_example)

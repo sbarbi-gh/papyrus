@@ -11,6 +11,7 @@ from papyrus.commands.index import app as index_app
 from papyrus.commands.ingest import app as ingest_app
 from papyrus.commands.init import app as init_app
 from papyrus.commands.search import app as search_app
+from papyrus.commands.notify import app as notify_app
 from papyrus.commands.update import app as update_app
 
 app = typer.Typer(no_args_is_help=True)
@@ -24,6 +25,7 @@ app.add_typer(check_app)
 app.add_typer(embed_app)
 app.add_typer(index_app)
 app.add_typer(search_app)
+app.add_typer(notify_app)
 
 
 def _load_dotenv_for_kb():
