@@ -1,5 +1,6 @@
 import json
 import shutil
+import tempfile
 from pathlib import Path
 from typing import Annotated, Optional
 
@@ -12,8 +13,11 @@ from papyrus.core.record import (
     create_record,
     load_enrichment_from_staging,
     remove_from_staging,
+    save_record,
+    load_record,
 )
 from papyrus.core.pubmed import efetch
+from papyrus.core.storage import push_pdf
 
 app = typer.Typer()
 console = Console()
@@ -27,16 +31,22 @@ def _ingest_one(
     staging_root: Path,
     via: str,
     pdf_path: Path | None,
+    config: dict,
 ) -> int:
     record_path = db_root / pmid / "record.json"
     if record_path.exists():
         console.print(f"[yellow]PMID {pmid} already exists in db/[/yellow]")
         return 2
 
+    storages = config.get("fulltext", {}).get("storages", ["local"])
+    pdfinbox = Path(config.get("fulltext", {}).get("pdfinbox", "pdfinbox/"))
+
     if pdf_path is not None:
-        mat_fulltext = "present"
+        mat_fulltext = "external"
+        fulltext_location = ""
     else:
         mat_fulltext = "absent"
+        fulltext_location = ""
 
     record_dir = create_record(
         pmid=pmid,
@@ -47,8 +57,25 @@ def _ingest_one(
     )
 
     if pdf_path is not None:
-        dest = record_dir / "fulltext.pdf"
-        shutil.copy2(str(pdf_path), str(dest))
+        external_storages = [s for s in storages if s != "local"]
+        if external_storages:
+            uploaded = push_pdf(pdf_path, external_storages, pmid)
+            fulltext_location = uploaded[0] if uploaded else ""
+            console.print(f"[dim]Uploaded to {', '.join(uploaded)}[/dim]")
+        else:
+            dest = record_dir / "fulltext.pdf"
+            shutil.copy2(str(pdf_path), str(dest))
+            mat_fulltext = "absent"
+            fulltext_location = ""
+
+        rec = load_record(record_dir)
+        rec["custom"]["materials"]["fulltext"] = mat_fulltext
+        rec["custom"]["materials"]["fulltext_location"] = fulltext_location
+        save_record(record_dir, rec)
+
+        if pdf_path.parent == (kb_root / pdfinbox):
+            pdf_path.unlink()
+            console.print(f"[dim]Removed {pdf_path.name} from pdfinbox/[/dim]")
 
     if enrichment is not None:
         remove_from_staging(pmid, staging_root)
@@ -137,7 +164,7 @@ def ingest(
         if enrich is None:
             not_found += 1
             continue
-        code = _ingest_one(p, enrich, kb_root, db_root, staging_root, via, pdf if len(pmids) == 1 else None)
+        code = _ingest_one(p, enrich, kb_root, db_root, staging_root, via, pdf if len(pmids) == 1 else None, config)
         if code == 0:
             ok += 1
         elif code == 2:

@@ -1,5 +1,7 @@
 import hashlib
 import json
+import shutil
+import tempfile
 from pathlib import Path
 from typing import Annotated
 
@@ -9,6 +11,7 @@ from rich.console import Console
 from papyrus.core.config import db_path, load_config, locate_kb_root
 from papyrus.core.events import write_event
 from papyrus.core.record import load_record, save_record
+from papyrus.core.storage import pull_pdf
 
 app = typer.Typer()
 console = Console()
@@ -70,27 +73,41 @@ def convert(
 ):
     """Convert PDF to structured markdown.
 
-    Reads db/<pmid>/fulltext.pdf, writes fulltext.md and chunk_index.json.
+    Reads PDF from db/<pmid>/ or pulls from external storage on demand.
     Idempotent — skips if fulltext.md already present and chunk_index matches source hash.
     """
     kb_root = locate_kb_root()
     config = load_config(kb_root)
     db_root = db_path(config)
+    storages = config.get("fulltext", {}).get("storages", ["local"])
 
     record_dir = db_root / pmid
     pdf_path = record_dir / "fulltext.pdf"
     md_path = record_dir / "fulltext.md"
     ci_path = record_dir / "chunk_index.json"
 
-    if not pdf_path.exists():
-        console.print(f"[red]No fulltext.pdf for PMID {pmid}[/red]")
-        raise typer.Exit(code=2)
+    tmp_dir = None
+    pulled_pdf = None
 
     if _idempotent_check(md_path, ci_path):
         console.print(f"[dim]db/{pmid}/fulltext.md already up-to-date[/dim]")
         raise typer.Exit(code=0)
 
-    console.print(f"[dim]Converting db/{pmid}/fulltext.pdf → fulltext.md[/dim]")
+    if not pdf_path.exists():
+        external_storages = [s for s in storages if s != "local"]
+        if not external_storages:
+            console.print(f"[red]No fulltext.pdf for PMID {pmid} and no external storages configured[/red]")
+            raise typer.Exit(code=2)
+
+        console.print(f"[dim]Pulling {pmid} from external storage...[/dim]")
+        tmp_dir = Path(tempfile.mkdtemp(prefix=f"papyrus-{pmid}-"))
+        pulled_pdf = pull_pdf(pmid, external_storages, tmp_dir)
+        if not pulled_pdf:
+            console.print(f"[red]PDF not found on any configured storage[/red]")
+            raise typer.Exit(code=2)
+        pdf_path = pulled_pdf
+
+    console.print(f"[dim]Converting...[/dim]")
     engine = _run_conversion(pdf_path, md_path, record_dir, config)
 
     rec = load_record(record_dir)
@@ -98,11 +115,16 @@ def convert(
     rec["custom"]["materials"]["chunks"] = _count_chunks(ci_path)
     save_record(record_dir, rec)
 
+    page_count = _count_pdf_pages(pdf_path)
+
+    if tmp_dir and pulled_pdf:
+        shutil.rmtree(tmp_dir)
+
     write_event(kb_root, {
         "kind": "source-converted",
         "pmid": pmid,
         "engine": "pymupdf4llm" if engine == "pymupdf" else engine,
-        "pages": _count_pdf_pages(pdf_path),
+        "pages": page_count,
         "n_chunks": rec["custom"]["materials"]["chunks"],
     })
 

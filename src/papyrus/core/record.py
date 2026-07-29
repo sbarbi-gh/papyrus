@@ -39,6 +39,7 @@ def create_record(
             "citekey_aliases": [],
             "materials": {
                 "fulltext": materials_fulltext,
+                "fulltext_location": "",
                 "fulltext_md": "absent",
                 "supp": False,
                 "distillation": "absent",

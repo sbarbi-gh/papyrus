@@ -9,6 +9,7 @@ from rich.console import Console
 from rich.table import Table
 
 from papyrus.core.config import db_path, load_config, locate_kb_root
+from papyrus.core.storage import check_pdf
 
 app = typer.Typer()
 console = Console()
@@ -68,6 +69,9 @@ def check(
 
     # 12. staging coherence
     _check12(db_root, staging_root, results)
+
+    # 13. external fulltext
+    _check13(config, db_root, results)
 
     n_errors = sum(r.get("errors", 0) for r in results)
     n_warnings = sum(r.get("warnings", 0) for r in results)
@@ -163,7 +167,8 @@ def _check2(db_root: Path, results: list[dict]):
         except Exception:
             continue
         mats = rec.get("custom", {}).get("materials", {})
-        if mats.get("fulltext") == "present" and not (d / "fulltext.pdf").exists():
+        ft_status = mats.get("fulltext", "")
+        if ft_status == "present" and not (d / "fulltext.pdf").exists():
             errors.append(f"db/{d.name}/: fulltext: present but no fulltext.pdf")
         if mats.get("fulltext_md") == "present" and not (d / "fulltext.md").exists():
             errors.append(f"db/{d.name}/: fulltext_md: present but no fulltext.md")
@@ -450,3 +455,34 @@ def _check12(db_root: Path, staging_root: Path, results: list[dict]):
             if cand.name in db_pmids:
                 warnings.append(f"staging/{run_dir.name}/{cand.name}/: already in db/ (stale)")
     _add_result(results, 12, "staging coherence", errors, warnings)
+
+
+def _check13(config: dict, db_root: Path, results: list[dict]):
+    errors, warnings = [], []
+    storages = config.get("fulltext", {}).get("storages", [])
+    external_storages = [s for s in storages if s != "local"]
+    if not external_storages:
+        _add_result(results, 13, "external fulltext", errors, warnings)
+        return
+    if not db_root.exists():
+        _add_result(results, 13, "external fulltext", errors, warnings)
+        return
+    for d in db_root.iterdir():
+        if not d.is_dir():
+            continue
+        rec_file = d / "record.json"
+        if not rec_file.exists():
+            continue
+        try:
+            with open(rec_file) as f:
+                rec = json.load(f)
+        except Exception:
+            continue
+        if rec.get("custom", {}).get("materials", {}).get("fulltext") != "external":
+            continue
+        pmid = d.name
+        found = check_pdf(pmid, external_storages)
+        missing = [url for url, exists in found.items() if not exists]
+        if missing:
+            warnings.append(f"db/{d.name}/: external fulltext missing on {', '.join(missing)}")
+    _add_result(results, 13, "external fulltext", errors, warnings)

@@ -7,7 +7,7 @@ from papyrus.core.constants import SCHEMA_VERSION
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "settings": {"db_path": "./db", "primary_db": "./db", "chunk_size": 60},
-    "fulltext": {"max_attempts": 5, "backoff": "exponential", "keep_on_wishlist": True},
+    "fulltext": {"storages": ["local"], "pdfinbox": "pdfinbox/"},
     "relevance": {},
     "source_conversion": {"engine": "marker", "fallback": "pymupdf", "max_pages": 100, "image_handling": "reference"},
     "chunking": {"method": "section", "target_bytes": 2048, "overlap_bytes": 256, "max_chunks_per_article": 80},
