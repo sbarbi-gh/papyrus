@@ -6,6 +6,7 @@
 intent.md                    # human-authored premise (agent never writes)
 method.toml                  # queries, filters, parameters (co-managed)
 events.jsonl                 # append-only structured event log (JSON-lines)
+pdfinbox/                    # staging area for incoming PDFs before ingest
 updates/
   <ts>.md                    # per-run narrative digest (agent-authored)
 staging/
@@ -13,10 +14,10 @@ staging/
     <pmid>/
       candidate.json         # {pmid, title, abstract, authors, doi, year, journal, references}
 db/
-  <pmid>/
+  <pmid>/                    # PMID-based canonical path (global namespace)
     record.json              # CSL-JSON bibliographic metadata + process state
     abstract.txt             # plain-text abstract
-    fulltext.pdf             # original PDF
+    fulltext.pdf             # original PDF (gitignored; local cache from external storage)
     fulltext.md              # structured markdown (after convert)
     chunk_index.json         # {chunk_id, start_byte, end_byte} mapping into fulltext.md
     chunks.jsonl             # one line per chunk: {chunk_id, text, embedding, model, dimensions}
@@ -55,7 +56,8 @@ with export.
     "references": ["38559001", "37990022"],
     "citekey_aliases": [],
     "materials": {
-      "fulltext": "present",
+      "fulltext": "external",
+      "fulltext_location": "rclone:onedrive:papyrus-kb/38471234.pdf",
       "fulltext_md": "present",
       "supp": false,
       "distillation": "present",
@@ -72,7 +74,8 @@ with export.
 
 | Field | Values | Meaning |
 |---|---|---|
-| `fulltext` | `absent`, `present`, `unavailable` | PDF availability |
+| `fulltext` | `absent`, `present`, `external`, `unavailable` | PDF availability. `external` means authoritative copy is in remote storage (rclone) |
+| `fulltext_location` | string (URI) or `""` | Storage URL for the PDF, e.g. `rclone:onedrive:papyrus-kb/38471234.pdf` |
 | `fulltext_md` | `absent`, `present` | Structured markdown exists |
 | `supp` | `true`, `false` | Supplementary materials present |
 | `distillation` | `absent`, `present` | Distillation written |
@@ -124,6 +127,7 @@ writes an event. Key event kinds:
 | `concept-archived` | `concept_id` | agent (manual) |
 | `re-index` | `old_model`, `new_model`, `n_articles` | agent (manual) |
 | `integrity-check` | `result`, `checks` | `papyrus check` |
+| `digest-sent` | `digest`, `resend_id`, `recipients` | `papyrus notify` |
 
 ## chunks.jsonl
 
@@ -216,9 +220,8 @@ primary_db = "./db"
 chunk_size = 60
 
 [fulltext]
-max_attempts = 5
-backoff = "exponential"
-keep_on_wishlist = true
+storages = ["local", "rclone:onedrive:papyrus-kb"]
+pdfinbox = "pdfinbox/"
 
 [relevance]
 inclusion = '''Include studies on X in adult populations.
@@ -262,6 +265,30 @@ enabled = true
 term = '''"topic A"[Title/Abstract] AND 2020:2026[dp]'''
 ```
 
+### Notifications
+
+```toml
+[notifications]
+enabled = true
+provider = "resend"
+from = ""          # auto-derived from KB directory name if empty
+to = ["user@example.com"]
+```
+
+### External PDF storage
+
+`[fulltext].storages` is a list of storage URLs. Supported schemes:
+
+- `local` — PDF stored in `db/<pmid>/fulltext.pdf` (gitignored)
+- `rclone:<remote>:<path>` — PDF stored via rclone. The remote must
+  match an rclone remote name. Paths are PMID-based (global namespace):
+  PDFs are stored as `<path>/<pmid>.pdf`.
+
+`[fulltext].pdfinbox` is the directory (relative to KB root) where
+incoming PDFs are staged before `papyrus ingest --pdf`. After a
+successful upload to external storage, the source file is cleaned
+from pdfinbox/.
+
 ### Query array-of-tables
 
 Each `[[queries]]` entry has:
@@ -280,3 +307,9 @@ Three axes structure the data model:
    is derived from it + corpus, co-managed.
 3. **Stable vs temporal** — stable facts live in records and concept files;
    temporal facts live in `events.jsonl`. Never the reverse.
+4. **PMID-based global namespace** — `db/<pmid>/` is the canonical path
+   for a given article across all KBs. The same PMID can be referenced
+   by multiple KBs without duplication.
+5. **PDFs are externally stored** — `db/*/fulltext.pdf` is gitignored.
+   The authoritative copy lives in external storage (rclone remote).
+   Local copies are a cache regenerable via `papyrus store pull`.

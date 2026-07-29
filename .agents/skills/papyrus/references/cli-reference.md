@@ -65,10 +65,14 @@ Ingest an article into the database. Two code paths:
 **Direct ingestion (seed/manual — bypasses screening):**
 1. Fetch metadata from PubMed via EFetch
 2. Create `db/<pmid>/record.json` with `via: seed` (or `manual`)
-3. If `--pdf <path>` given, copy PDF to `db/<pmid>/fulltext.pdf`
+3. If `--pdf <path>` given, upload PDF to external storage per
+   `[fulltext].storages` (rclone), set `fulltext_location` in
+   `record.json`, and remove PDF from `pdfinbox/` if it resides there.
+   If no external storages configured, copy locally to
+   `db/<pmid>/fulltext.pdf` (gitignored).
 
 **Exit codes:** 0 (created), 2 (already exists), 3 (not in staging and
-PubMed fetch failed)
+PubMed fetch failed), 4 (rclone upload failure)
 
 ---
 
@@ -99,6 +103,8 @@ papyrus convert <pmid>
 
 Convert `db/<pmid>/fulltext.pdf` → `fulltext.md` + `chunk_index.json`.
 
+- If `fulltext.pdf` is missing locally, attempts to pull from external
+  storage via `fulltext_location` in `record.json` before converting.
 - Reads PDF, runs conversion engine from `method.toml`
   `[source_conversion].engine` (primary: marker, fallback: pymupdf4llm)
 - Writes structured markdown with section-preserving headings
@@ -108,7 +114,7 @@ Convert `db/<pmid>/fulltext.pdf` → `fulltext.md` + `chunk_index.json`.
   `chunk_index.json.source_hash` matches current file hash
 
 **Exit codes:** 0 (converted or already current), 1 (engine failure), 2
-(no `fulltext.pdf`)
+(no `fulltext.pdf` and PDF not found on external storage)
 
 ---
 
@@ -161,7 +167,7 @@ Regenerate `concepts/index.json` from authoritative sources.
 papyrus check [--json]
 ```
 
-Run 12 integrity checks over the KB tree.
+Run 13 integrity checks over the KB tree.
 
 | # | Check | Severity |
 |---|---|---|
@@ -177,6 +183,7 @@ Run 12 integrity checks over the KB tree.
 | 10 | distillation concept tags | warning |
 | 11 | consolidated index freshness | error |
 | 12 | staging coherence (stale entries) | warning |
+| 13 | external fulltext (verify PDF on configured rclone storages) | warning |
 
 - `--json` — output machine-readable JSON report
 - Exit 0 if no errors (warnings only OK), exit 1 if any error
@@ -202,3 +209,77 @@ Semantic search over the KB.
 
 **Exit codes:** 0, 1 (embedding API error), 2 (cite key not
 found/invalid query)
+
+---
+
+## `papyrus store`
+
+```
+papyrus store push <pmid>
+papyrus store pull <pmid> [--output <dir>]
+papyrus store check [<pmid>]
+```
+
+Manage external PDF storage via rclone per `[fulltext].storages`.
+
+**push**
+- Uploads local `db/<pmid>/fulltext.pdf` to all configured external
+  rclone storages.
+- Fails with exit 1 if no local PDF exists (use `store pull` to restore).
+- Fails with exit 4 if rclone upload fails.
+
+**pull**
+- Downloads `fulltext.pdf` from the first reachable external storage
+  into `db/<pmid>/` (default) or `--output <dir>`.
+- Fails with exit 1 if PDF not found on any storage.
+
+**check**
+- With `<pmid>`: checks existence on all external storages.
+- Without `<pmid>`: scans all records with `fulltext: external` and
+  verifies each PDF exists. Prints a table.
+
+**Exit codes:** 0 (ok), 1 (not found or local missing), 2 (no storages
+configured), 4 (rclone error)
+
+---
+
+## `papyrus inbox`
+
+```
+papyrus inbox list
+papyrus inbox clean [--delete] [--dry-run]
+```
+
+Manage the `pdfinbox/` staging directory per `[fulltext].pdfinbox`.
+
+**list**
+- Lists all PDF files in `pdfinbox/` with size and PMID guess
+  (extracted from filename if `<pmid>.pdf` format).
+
+**clean**
+- Identifies PDFs whose filename matches a PMID that already exists in
+  `db/`.
+- `--dry-run` (default) — shows what would be removed.
+- `--delete` — actually removes the files.
+
+**Exit codes:** 0 (ok), 1 (pdfinbox/ doesn't exist or is empty)
+
+---
+
+## `papyrus notify`
+
+```
+papyrus notify [<digest>] [--latest] [--list] [--dry-run]
+```
+
+Send a digest via email using Resend API per `[notifications]`.
+
+- `<digest>` — specific digest filename or timestamp to send
+- `--latest` — send the most recent digest in `updates/`
+- `--list` — list available digests
+- `--dry-run` — preview email without sending
+
+Requires `RESEND_API_KEY` in environment or `.env`.
+Sender auto-derived from KB directory name if not set in `[notifications].from`.
+
+**Exit codes:** 0 (sent), 1 (not enabled, no API key, or sending failure)

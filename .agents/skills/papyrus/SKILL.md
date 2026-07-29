@@ -61,7 +61,7 @@ papyrus check   # verify an existing KB is healthy
 ## Command quick reference
 
 | Command | Purpose | Key flags |
-|---|---|---|
+|---|---|---|---|
 | `papyrus init` | Create a new KB tree | `--force` |
 | `papyrus update` | Query PubMed → staging | `--query-id`, `--related-to`, `--dry-run` |
 | `papyrus ingest <pmid>` | Ingest from staging or seed | `--pdf`, `--via` |
@@ -69,8 +69,11 @@ papyrus check   # verify an existing KB is healthy
 | `papyrus convert <pmid>` | PDF → structured markdown | — |
 | `papyrus embed <pmid>` | Embed chunks or distillation | `--all`, `--pending`, `--kind` |
 | `papyrus index` | Regenerate concepts/index.json | — |
-| `papyrus check` | Run 12 integrity checks | `--json` |
+| `papyrus check` | Run 13 integrity checks | `--json` |
 | `papyrus search <query>` | Semantic search | `--kind`, `--top-k`, `--cite` |
+| `papyrus store push \| pull \| check` | Manage external PDF storage | — |
+| `papyrus inbox list \| clean` | Manage pdfinbox/ staging dir | `--delete`, `--dry-run` |
+| `papyrus notify <digest>` | Send digest via email (Resend) | `--latest`, `--list`, `--dry-run` |
 
 Full signatures in `references/cli-reference.md`.
 
@@ -80,13 +83,14 @@ Full signatures in `references/cli-reference.md`.
 intent.md                    # human-authored premise (you never write this)
 method.toml                  # queries, filters, parameters (co-managed)
 events.jsonl                 # append-only event log (JSON-lines)
+pdfinbox/                    # staging area for incoming PDFs before ingest
 updates/<ts>.md              # per-run narrative digest (you write)
 staging/<ts>/<pmid>/          # candidates awaiting screening
   candidate.json
-db/<pmid>/                    # permanent record
+db/<pmid>/                    # permanent record (PMID-based canonical path)
   record.json                # CSL-JSON + custom process state
   abstract.txt               # plain-text abstract
-  fulltext.pdf               # original PDF
+  fulltext.pdf               # original PDF (gitignored; cached from external storage)
   fulltext.md                # structured markdown (after convert)
   chunk_index.json           # chunk boundary map
   chunks.jsonl               # per-chunk embeddings
@@ -120,16 +124,23 @@ Full schema in `references/file-scheme.md`.
    orientation from `intent.md`. For each candidate, decide:
    - **Ingest**: `papyrus ingest <pmid>`
    - **Discard**: `papyrus discard <pmid> --reason "..." --confidence 0.X`
-3. **Your job — full-text**: for each new ingest, try to find the PDF.
-   - If you have it locally: `papyrus ingest <pmid> --pdf <path>`
-   - If you can fetch it (Unpaywall, OA): download, then re-ingest
-   - If unavailable: leave as `fulltext: absent` (not blocking)
-4. `papyrus convert <pmid>` — PDF → structured markdown + chunk index
-   (skip if already converted and source hash matches).
+ 3. **Your job — full-text**: for each new ingest, try to find the PDF.
+    - Place PDFs in `pdfinbox/` before ingest.
+    - `papyrus ingest <pmid> --pdf pdfinbox/<file>.pdf` — uploads to
+      external storage (rclone, per `[fulltext].storages`), records
+      `fulltext_location` in `record.json`, and cleans `pdfinbox/`.
+    - If PDF is not in `pdfinbox/`, `papyrus ingest <pmid> --pdf <path>`
+      works from any path — uploads to external storage.
+    - If you can fetch it (Unpaywall, OA): download → place in `pdfinbox/`
+      → `papyrus ingest --pdf`.
+    - If unavailable: leave as `fulltext: absent` (not blocking).
+ 4. `papyrus convert <pmid>` — PDF → structured markdown + chunk index.
+    If `fulltext.pdf` is missing locally, pulls from external storage
+    on demand. Skips if already converted and source hash matches.
 5. `papyrus embed <pmid>` — chunk text and embed, or embed distillation
    (skip if model on disk matches method.toml).
 6. `papyrus index` — regenerate `concepts/index.json`.
-7. `papyrus check` — verify 12 integrity checks pass.
+ 7. `papyrus check` — verify 13 integrity checks pass.
 8. **Your job — digest**: write `updates/<ts>.md` summarizing new articles,
    common threads, and suggestions for query/filter revision.
 
@@ -198,8 +209,14 @@ After concept changes, always run `papyrus index` and `papyrus check`.
 ### Maintenance
 
 - `papyrus check` — run after any pipeline step to catch inconsistencies.
-  Fix errors immediately; investigate warnings.
+  Fix errors immediately; investigate warnings. Check #13 verifies external
+  fulltext existence on configured rclone storages.
 - `papyrus index` — regenerate after any concept or record change.
+- `papyrus store push` — push local PDFs to external storage (rclone).
+- `papyrus store pull` — restore missing PDFs from external storage.
+- `papyrus store check` — verify all external fulltext PDFs are reachable.
+- `papyrus inbox list` — list PDFs staged in `pdfinbox/`.
+- `papyrus inbox clean` — remove ingested PDFs from `pdfinbox/`.
 - If `method.toml` `[embeddings].model` changes, re-embed all articles:
   `papyrus embed --all`, then `papyrus check`.
 - If schema version in `method.toml` is bumped, run migration scripts
@@ -222,6 +239,12 @@ After concept changes, always run `papyrus index` and `papyrus check`.
 - **Full-text is decoupled from inclusion.** A paper can be `status:
   included` with `fulltext: absent` indefinitely. It's searchable by
   metadata and abstract.
+- **PDFs are not version-controlled.** `db/*/fulltext.pdf` is gitignored.
+  The authoritative copy lives in external storage (rclone remote per
+  `[fulltext].storages`). Use `papyrus store pull` to restore after clone.
+- **PMID-based paths form a global namespace.** `db/<pmid>/` is the
+  canonical path for a given article across all KBs. The same PMID can be
+  referenced independently of which KB it was first ingested into.
 
 ## When to read reference files
 
