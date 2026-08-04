@@ -7,6 +7,7 @@ from papyrus.core.constants import SCHEMA_VERSION
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "settings": {"db_path": "./db", "primary_db": "./db", "chunk_size": 60},
+    "update": {"papers_per_week": 5},
     "fulltext": {"storages": ["local"], "pdfinbox": "pdfinbox/"},
     "relevance": {},
     "source_conversion": {"engine": "marker", "fallback": "pymupdf", "max_pages": 100, "image_handling": "reference"},

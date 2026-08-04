@@ -15,6 +15,26 @@ app = typer.Typer()
 console = Console()
 
 
+def _promote_deferred(kb_root: Path, deferred_root: Path, staging_run: Path, count: int) -> list[str]:
+    promoted: list[str] = []
+    if not deferred_root.exists():
+        return promoted
+    candidates = sorted(
+        [d for d in deferred_root.iterdir() if d.is_dir() and (d / "candidate.json").exists()]
+    )
+    for cand_dir in candidates[:count]:
+        pmid = cand_dir.name
+        dest = staging_run / pmid
+        dest.mkdir(exist_ok=True)
+        with open(cand_dir / "candidate.json") as src, open(dest / "candidate.json", "w") as dst:
+            dst.write(src.read())
+        import shutil
+        shutil.rmtree(cand_dir)
+        write_event(kb_root, {"kind": "revisit", "pmid": pmid, "via": "auto-promote"})
+        promoted.append(pmid)
+    return promoted
+
+
 @app.command()
 def update(
     query_id: Annotated[
@@ -35,6 +55,7 @@ def update(
     config = load_config(kb_root)
     db_root = db_path(config)
     staging_root = kb_root / "staging"
+    deferred_root = kb_root / "deferred"
 
     kb = KB(root=kb_root, config=config)
     known_pmids = collect_known_pmids(kb)
@@ -94,6 +115,27 @@ def update(
                     })
 
             all_candidates |= new
+
+    n_new = len(all_candidates)
+    papers_per_week = config.get("update", {}).get("papers_per_week", 5)
+
+    if n_new < papers_per_week and not dry_run and deferred_root.exists():
+        shortage = papers_per_week - n_new
+        deferred_count = sum(
+            1 for d in deferred_root.iterdir()
+            if d.is_dir() and (d / "candidate.json").exists()
+        )
+        if deferred_count > 0:
+            to_promote = min(shortage, deferred_count)
+            console.print(
+                f"[dim]{n_new} new (target: {papers_per_week}/week), "
+                f"promoting {to_promote} from deferred/[/dim]"
+            )
+            ts = time.strftime("%Y-%m-%dT%H%MZ", time.gmtime())
+            run_dir = staging_root / ts
+            run_dir.mkdir(parents=True, exist_ok=True)
+            promoted = _promote_deferred(kb_root, deferred_root, run_dir, to_promote)
+            all_candidates |= set(promoted)
 
     if not all_candidates:
         console.print("[yellow]No new candidates found.[/yellow]")

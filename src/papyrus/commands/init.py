@@ -29,7 +29,7 @@ def init(
         )
         raise typer.Exit(code=2)
 
-    dirs = ["db", "concepts", "updates", "staging", "embeddings"]
+    dirs = ["db", "concepts", "updates", "staging", "deferred", "embeddings"]
     conflicts = [d for d in dirs if (cwd / d).exists() and not force]
     if conflicts:
         console.print(f"[red]Existing directories found: {', '.join(conflicts)}[/red]")
@@ -57,6 +57,9 @@ def init(
 db_path = "./db"
 primary_db = "./db"
 chunk_size = 60
+
+[update]
+papers_per_week = 5
 
 [fulltext]
 max_attempts = 5
@@ -107,7 +110,7 @@ RESEND_API_KEY=
         f.write(env_example)
 
     console.print(f"[green]Initialized KB tree (schema {SCHEMA_VERSION})[/green]")
-    console.print("  db/ concepts/ updates/ staging/ embeddings/")
+    console.print("  db/ concepts/ updates/ staging/ deferred/ embeddings/")
     console.print("  events.jsonl  concepts/index.json  method.toml")
     console.print("  [dim].env.example — copy to .env and set your API keys[/dim]")
     if not intent.exists():

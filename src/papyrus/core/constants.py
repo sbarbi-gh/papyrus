@@ -1,4 +1,4 @@
-SCHEMA_VERSION = "1.1.0"
+SCHEMA_VERSION = "2.0.0"
 
 RECORD_FILE = "record.json"
 ABSTRACT_FILE = "abstract.txt"
@@ -18,4 +18,7 @@ DIR_DB = "db"
 DIR_CONCEPTS = "concepts"
 DIR_UPDATES = "updates"
 DIR_STAGING = "staging"
+DIR_DEFERRED = "deferred"
 DIR_EMBEDDINGS = "embeddings"
+
+DEFAULT_PAPERS_PER_WEEK = 5

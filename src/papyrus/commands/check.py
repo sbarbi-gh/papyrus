@@ -9,6 +9,7 @@ from rich.console import Console
 from rich.table import Table
 
 from papyrus.core.config import db_path, load_config, locate_kb_root
+from papyrus.core.events import read_events
 from papyrus.core.storage import check_pdf
 
 app = typer.Typer()
@@ -27,6 +28,7 @@ def check(
     config = load_config(kb_root)
     db_root = db_path(config)
     staging_root = kb_root / "staging"
+    deferred_root = kb_root / "deferred"
     events_path = kb_root / "events.jsonl"
     method_path = kb_root / "method.toml"
     index_path = kb_root / "concepts" / "index.json"
@@ -72,6 +74,9 @@ def check(
 
     # 13. external fulltext
     _check13(config, db_root, results)
+
+    # 14. deferred coherence
+    _check14(db_root, deferred_root, staging_root, events_path, results)
 
     n_errors = sum(r.get("errors", 0) for r in results)
     n_warnings = sum(r.get("warnings", 0) for r in results)
@@ -186,17 +191,9 @@ def _check3(config: dict, events_path: Path, results: list[dict]):
         return
     query_ids = {q["id"] for q in config.get("queries", []) if q.get("id")}
     event_query_ids: set[str] = set()
-    with open(events_path) as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                ev = json.loads(line)
-            except Exception:
-                continue
-            if ev.get("kind") == "query-run" and "query_id" in ev:
-                event_query_ids.add(ev["query_id"])
+    for ev in read_events(events_path):
+        if ev.get("kind") == "query-run" and "query_id" in ev:
+            event_query_ids.add(ev["query_id"])
     orphan = event_query_ids - query_ids
     if orphan:
         warnings.append(f"Event log references unknown query ids: {', '.join(sorted(orphan))}")
@@ -228,42 +225,44 @@ def _check4(config: dict, db_root: Path, method_path: Path, results: list[dict])
 
 def _check5(db_root: Path, events_path: Path, results: list[dict]):
     errors, warnings = [], []
-    if not events_path.exists() or not db_root.exists():
+    if not events_path.exists():
         _add_result(results, 5, "status ↔ event log", errors, warnings)
         return
     last_event_by_pmid: dict[str, dict] = {}
-    with open(events_path) as f:
-        for line in f:
-            line = line.strip()
-            if not line:
+    lifecycle_kinds = {"ingest", "discard", "defer", "revisit"}
+    for ev in read_events(events_path):
+        if ev.get("kind") in lifecycle_kinds and "pmid" in ev:
+            last_event_by_pmid[ev["pmid"]] = ev
+
+    db_pmids: set[str] = set()
+    if db_root.exists():
+        for d in db_root.iterdir():
+            if not d.is_dir():
                 continue
+            rec_file = d / "record.json"
+            if not rec_file.exists():
+                continue
+            db_pmids.add(d.name)
             try:
-                ev = json.loads(line)
+                with open(rec_file) as f:
+                    rec = json.load(f)
             except Exception:
                 continue
-            if ev.get("kind") in ("ingest", "discard") and "pmid" in ev:
-                pmid = ev["pmid"]
-                last_event_by_pmid[pmid] = ev
-    for d in db_root.iterdir():
-        if not d.is_dir():
+            status = rec.get("custom", {}).get("status", "")
+            last_ev = last_event_by_pmid.get(d.name)
+            if not last_ev:
+                continue
+            expected = "included" if last_ev.get("kind") == "ingest" else "discarded"
+            if status != expected and status != "excluded":
+                warnings.append(
+                    f"db/{d.name}/: status={status} but last event is {last_ev['kind']}"
+                )
+
+    for pmid, ev in last_event_by_pmid.items():
+        if pmid in db_pmids:
             continue
-        rec_file = d / "record.json"
-        if not rec_file.exists():
-            continue
-        try:
-            with open(rec_file) as f:
-                rec = json.load(f)
-        except Exception:
-            continue
-        status = rec.get("custom", {}).get("status", "")
-        last_ev = last_event_by_pmid.get(d.name)
-        if not last_ev:
-            continue
-        expected = "included" if last_ev.get("kind") == "ingest" else "discarded"
-        if status != expected and status != "excluded":
-            warnings.append(
-                f"db/{d.name}/: status={status} but last event is {last_ev['kind']}"
-            )
+        if ev["kind"] == "ingest":
+            warnings.append(f"PMID {pmid}: ingest event but no db/ record")
     _add_result(results, 5, "status ↔ event log", errors, warnings)
 
 
@@ -273,17 +272,9 @@ def _check6(db_root: Path, events_path: Path, results: list[dict]):
         _add_result(results, 6, "ingest event for included records", errors, warnings)
         return
     ingest_pmids: set[str] = set()
-    with open(events_path) as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                ev = json.loads(line)
-            except Exception:
-                continue
-            if ev.get("kind") == "ingest" and "pmid" in ev:
-                ingest_pmids.add(ev["pmid"])
+    for ev in read_events(events_path):
+        if ev.get("kind") == "ingest" and "pmid" in ev:
+            ingest_pmids.add(ev["pmid"])
     for d in db_root.iterdir():
         if not d.is_dir():
             continue
@@ -486,3 +477,47 @@ def _check13(config: dict, db_root: Path, results: list[dict]):
         if missing:
             warnings.append(f"db/{d.name}/: external fulltext missing on {', '.join(missing)}")
     _add_result(results, 13, "external fulltext", errors, warnings)
+
+
+def _check14(db_root: Path, deferred_root: Path, staging_root: Path,
+             events_path: Path, results: list[dict]):
+    errors, warnings = [], []
+    if not deferred_root.exists():
+        _add_result(results, 14, "deferred coherence", errors, warnings)
+        return
+
+    last_event_by_pmid: dict[str, dict] = {}
+    for ev in read_events(events_path):
+        if ev.get("kind") in ("defer", "ingest", "discard", "revisit") and "pmid" in ev:
+            last_event_by_pmid[ev["pmid"]] = ev
+
+    db_pmids: set[str] = set()
+    if db_root.exists():
+        db_pmids = {d.name for d in db_root.iterdir() if d.is_dir()}
+    staging_pmids: set[str] = set()
+    if staging_root.exists():
+        for run_dir in staging_root.iterdir():
+            if run_dir.is_dir():
+                for cand in run_dir.iterdir():
+                    if cand.is_dir():
+                        staging_pmids.add(cand.name)
+
+    for d in deferred_root.iterdir():
+        if not d.is_dir():
+            continue
+        if not (d / "candidate.json").exists():
+            errors.append(f"deferred/{d.name}/: missing candidate.json")
+            continue
+        if d.name in db_pmids:
+            warnings.append(f"deferred/{d.name}/: also in db/ (stale)")
+        if d.name in staging_pmids:
+            warnings.append(f"deferred/{d.name}/: also in staging (stale)")
+        last_ev = last_event_by_pmid.get(d.name)
+        if last_ev is None:
+            warnings.append(f"deferred/{d.name}/: no defer event in log")
+        elif last_ev["kind"] != "defer":
+            warnings.append(
+                f"deferred/{d.name}/: last event is {last_ev['kind']} (expected defer)"
+            )
+
+    _add_result(results, 14, "deferred coherence", errors, warnings)

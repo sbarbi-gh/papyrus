@@ -1,5 +1,6 @@
 import json
 import shutil
+import time
 from pathlib import Path
 from typing import Any
 
@@ -97,6 +98,36 @@ def remove_from_staging(pmid: str, staging_root: Path):
         if not remaining:
             shutil.rmtree(run_dir)
             return
+
+
+def move_to_deferred(pmid: str, staging_root: Path, deferred_root: Path) -> dict[str, Any] | None:
+    enrichment = load_enrichment_from_staging(pmid, staging_root)
+    if enrichment is None:
+        return None
+    deferred_root.mkdir(parents=True, exist_ok=True)
+    dest = deferred_root / pmid
+    dest.mkdir(exist_ok=True)
+    with open(dest / CANDIDATE_FILE, "w") as f:
+        json.dump(enrichment, f, indent=2, ensure_ascii=False)
+    remove_from_staging(pmid, staging_root)
+    return enrichment
+
+
+def move_from_deferred(pmid: str, deferred_root: Path, staging_root: Path) -> dict[str, Any] | None:
+    src = deferred_root / pmid / CANDIDATE_FILE
+    if not src.exists():
+        return None
+    with open(src) as f:
+        enrichment = json.load(f)
+    ts = time.strftime("%Y-%m-%dT%H%MZ", time.gmtime())
+    run_dir = staging_root / ts
+    run_dir.mkdir(parents=True, exist_ok=True)
+    dest = run_dir / pmid
+    dest.mkdir(exist_ok=True)
+    with open(dest / CANDIDATE_FILE, "w") as f:
+        json.dump(enrichment, f, indent=2, ensure_ascii=False)
+    shutil.rmtree(deferred_root / pmid)
+    return enrichment
 
 
 def load_record(record_dir: Path) -> dict[str, Any]:

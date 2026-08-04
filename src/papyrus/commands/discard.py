@@ -1,14 +1,12 @@
-import json
 from pathlib import Path
 from typing import Annotated, Optional
 
 import typer
 from rich.console import Console
 
-from papyrus.core.config import db_path, load_config, locate_kb_root
+from papyrus.core.config import load_config, locate_kb_root
 from papyrus.core.events import write_event
 from papyrus.core.record import (
-    create_record,
     load_enrichment_from_staging,
     remove_from_staging,
 )
@@ -29,35 +27,17 @@ def discard(
         typer.Option("--confidence", help="Confidence score (0.0–1.0)"),
     ] = None,
 ):
-    """Discard an article and create a permanent record so it won't be re-proposed."""
+    """Discard an article — track via event log, no db/ record written."""
     kb_root = locate_kb_root()
-    config = load_config(kb_root)
-    db_root = db_path(config)
     staging_root = kb_root / "staging"
-
-    record_path = db_root / pmid / "record.json"
-    if record_path.exists():
-        console.print(f"[yellow]PMID {pmid} already exists in db/[/yellow]")
-        raise typer.Exit(code=2)
 
     enrichment = load_enrichment_from_staging(pmid, staging_root)
     if enrichment is None:
         console.print(f"[red]PMID {pmid} not found in staging[/red]")
         raise typer.Exit(code=3)
 
-    record_dir = create_record(
-        pmid=pmid,
-        enrichment=enrichment,
-        db_root=db_root,
-        status="discarded",
-        skip_abstract=True,
-    )
-
+    title = enrichment.get("title", "")[:80]
     remove_from_staging(pmid, staging_root)
-
-    cite_key = "?"
-    with open(record_dir / "record.json") as f:
-        cite_key = json.load(f).get("id", "?")
 
     write_event(kb_root, {
         "kind": "discard",
@@ -67,7 +47,8 @@ def discard(
     })
 
     conf_str = f", confidence: {confidence}" if confidence is not None else ""
+    reason_str = f" (reason: {reason}{conf_str})" if reason or confidence is not None else ""
     console.print(
-        f"[yellow]{record_dir.relative_to(kb_root)}/  {cite_key}  "
-        f"(reason: {reason}{conf_str})[/yellow]"
+        f"[yellow]discarded PMID {pmid}{reason_str}[/yellow]"
+        + (f"\n[dim]  {title}...[/dim]" if title else "")
     )
