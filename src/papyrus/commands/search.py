@@ -73,9 +73,13 @@ def search(
         scores = cosine_scores(q, vectors)
         top_idx = np.argsort(scores)[-top_k:][::-1]
         top_scores = scores[top_idx]
+        top_meta = [meta[i] for i in top_idx]
     else:
         split = split_by_kind(vectors, meta)
-        top_scores, top_idx = cascade_search(
+        # cascade_search resolves metas against the winning kind's sub-array
+        # itself; re-concatenating meta here and reusing its indices would
+        # mismatch score/text/PMID for distillation/chunk wins (issue #3-C).
+        top_scores, top_meta = cascade_search(
             q,
             split["concept"][0], split["concept"][1],
             split["distillation"][0], split["distillation"][1],
@@ -83,9 +87,8 @@ def search(
             top_k=top_k,
             threshold=CASCADE_THRESHOLD,
         )
-        meta = split["concept"][1] + split["distillation"][1] + split["chunk"][1]
 
-    if len(top_idx) == 0:
+    if len(top_meta) == 0:
         console.print("[yellow]No results above threshold.[/yellow]")
         return
 
@@ -94,10 +97,9 @@ def search(
     table.add_column("Kind")
     table.add_column("PMID/Cite", style="cyan")
     table.add_column("Text")
-    for i in range(min(len(top_idx), top_k)):
-        idx = top_idx[i]
+    for i in range(min(len(top_meta), top_k)):
         score = float(top_scores[i])
-        m = meta[idx]
+        m = top_meta[i]
         pmid = m.get("pmid", "")
         cid = m.get("concept_id", "")
         ref = pmid or cid

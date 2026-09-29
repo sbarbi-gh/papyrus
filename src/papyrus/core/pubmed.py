@@ -27,15 +27,17 @@ def _rates() -> tuple[float, int]:
 
 class _RateLimiter:
     def __init__(self):
-        interval, _ = _rates()
-        self._interval = interval
         self._last_call = 0.0
 
     def wait(self):
+        # Resolve the interval on every call: .env is loaded after imports
+        # (cli.py _load_dotenv_for_kb runs in main()), so an interval captured
+        # at import time always sees the no-key rate (issue #3-F).
+        interval, _ = _rates()
         now = time.monotonic()
         since = now - self._last_call
-        if since < self._interval:
-            time.sleep(self._interval - since)
+        if since < interval:
+            time.sleep(interval - since)
         self._last_call = time.monotonic()
 
 

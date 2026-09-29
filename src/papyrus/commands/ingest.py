@@ -65,7 +65,7 @@ def _ingest_one(
         else:
             dest = record_dir / "fulltext.pdf"
             shutil.copy2(str(pdf_path), str(dest))
-            mat_fulltext = "absent"
+            mat_fulltext = "present"
             fulltext_location = ""
 
         rec = load_record(record_dir)

@@ -28,28 +28,40 @@ def chunk_markdown(
     overlap_bytes: int = 256,
     max_chunks: int = 80,
 ) -> list[dict]:
+    """Split markdown into section-aligned chunks.
+
+    Every chunk records the exact character span ("start"/"end") of its text
+    within the source string: slicing text[start:end] returns the chunk text
+    verbatim. Offsets are Python str indices (characters), never bytes, so
+    multi-byte UTF-8 content cannot shift them (issue #3-D).
+    """
     sections = _split_sections(text)
-    content_sections = [(t, b) for t, b in sections if _is_content_section(t)]
+    content_sections = [(t, b, s) for t, b, s in sections if _is_content_section(t)]
     if not content_sections:
         content_sections = sections
     chunks: list[dict] = []
     chunk_id = 0
 
-    for section_title, section_body in content_sections:
+    for section_title, section_body, section_start in content_sections:
         if not section_body.strip():
             continue
         pos = 0
         body_len = len(section_body)
         while pos < body_len and len(chunks) < max_chunks:
             end = min(pos + target_bytes, body_len)
-            chunk_text = section_body[pos:end].strip()
+            window = section_body[pos:end]
+            chunk_text = window.strip()
             if not chunk_text:
                 pos = end
                 continue
+            # Locate the stripped text exactly inside the source string.
+            start_in_text = section_start + pos + (len(window) - len(window.lstrip()))
             chunks.append({
                 "chunk_id": f"{chunk_id:05d}",
                 "text": chunk_text,
                 "section": section_title,
+                "start": start_in_text,
+                "end": start_in_text + len(chunk_text),
             })
             chunk_id += 1
             pos = end - overlap_bytes
@@ -59,19 +71,21 @@ def chunk_markdown(
     return chunks
 
 
-def _split_sections(text: str) -> list[tuple[str, str]]:
+def _split_sections(text: str) -> list[tuple[str, str, int]]:
+    """Return (title, body, body_start) with body_start the absolute
+    character offset of the body within text."""
     heading_pat = re.compile(r"^(#{1,6}\s+.+)$", re.MULTILINE)
     matches = list(heading_pat.finditer(text))
     if not matches:
-        return [("", text)]
+        return [("", text, 0)]
 
-    sections: list[tuple[str, str]] = []
+    sections: list[tuple[str, str, int]] = []
     for i, m in enumerate(matches):
         title = m.group(1).strip()
         start = m.end()
         end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
         body = text[start:end]
-        sections.append((title, body))
+        sections.append((title, body, start))
     return sections
 
 
@@ -97,17 +111,13 @@ def write_chunks(
         "chunks": [],
     }
 
-    start = 0
     for chunk in chunks:
-        chunk_text_bytes = chunk["text"].encode()
-        end = start + len(chunk_text_bytes)
         chunk_index["chunks"].append({
             "chunk_id": chunk["chunk_id"],
-            "start_byte": start,
-            "end_byte": end,
+            "start_char": chunk["start"],
+            "end_char": chunk["end"],
             "section": chunk["section"],
         })
-        start = end + 1
 
     with open(record_dir / "chunk_index.json", "w") as f:
         json.dump(chunk_index, f, indent=2)

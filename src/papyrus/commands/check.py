@@ -142,6 +142,14 @@ def _add_result(results: list[dict], id: int, name: str, errors: list[str], warn
     })
 
 
+def _warn_malformed_events(warnings: list[str]):
+    """on_error callback for read_events: malformed event lines become
+    warnings instead of being silently skipped (issue #3-E)."""
+    def on_error(line: str) -> None:
+        warnings.append(f"events.jsonl: malformed line skipped: {line[:80]!r}")
+    return on_error
+
+
 def _check1(kb_root: Path, db_root: Path, results: list[dict]):
     errors, warnings = [], []
     if not db_root.exists():
@@ -170,6 +178,7 @@ def _check2(db_root: Path, results: list[dict]):
             with open(d / "record.json") as f:
                 rec = json.load(f)
         except Exception:
+            warnings.append(f"db/{d.name}/: record.json parse error")
             continue
         mats = rec.get("custom", {}).get("materials", {})
         ft_status = mats.get("fulltext", "")
@@ -191,7 +200,7 @@ def _check3(config: dict, events_path: Path, results: list[dict]):
         return
     query_ids = {q["id"] for q in config.get("queries", []) if q.get("id")}
     event_query_ids: set[str] = set()
-    for ev in read_events(events_path):
+    for ev in read_events(events_path, on_error=_warn_malformed_events(warnings)):
         if ev.get("kind") == "query-run" and "query_id" in ev:
             event_query_ids.add(ev["query_id"])
     orphan = event_query_ids - query_ids
@@ -216,6 +225,7 @@ def _check4(config: dict, db_root: Path, method_path: Path, results: list[dict])
             with open(rec_file) as f:
                 rec = json.load(f)
         except Exception:
+            warnings.append(f"db/{d.name}/: record.json parse error")
             continue
         rv = rec.get("schema_version", "")
         if rv and mt_version and rv != mt_version:
@@ -230,7 +240,7 @@ def _check5(db_root: Path, events_path: Path, results: list[dict]):
         return
     last_event_by_pmid: dict[str, dict] = {}
     lifecycle_kinds = {"ingest", "discard", "defer", "revisit"}
-    for ev in read_events(events_path):
+    for ev in read_events(events_path, on_error=_warn_malformed_events(warnings)):
         if ev.get("kind") in lifecycle_kinds and "pmid" in ev:
             last_event_by_pmid[ev["pmid"]] = ev
 
@@ -247,6 +257,7 @@ def _check5(db_root: Path, events_path: Path, results: list[dict]):
                 with open(rec_file) as f:
                     rec = json.load(f)
             except Exception:
+                warnings.append(f"db/{d.name}/: record.json parse error")
                 continue
             status = rec.get("custom", {}).get("status", "")
             last_ev = last_event_by_pmid.get(d.name)
@@ -272,7 +283,7 @@ def _check6(db_root: Path, events_path: Path, results: list[dict]):
         _add_result(results, 6, "ingest event for included records", errors, warnings)
         return
     ingest_pmids: set[str] = set()
-    for ev in read_events(events_path):
+    for ev in read_events(events_path, on_error=_warn_malformed_events(warnings)):
         if ev.get("kind") == "ingest" and "pmid" in ev:
             ingest_pmids.add(ev["pmid"])
     for d in db_root.iterdir():
@@ -285,6 +296,7 @@ def _check6(db_root: Path, events_path: Path, results: list[dict]):
             with open(rec_file) as f:
                 rec = json.load(f)
         except Exception:
+            warnings.append(f"db/{d.name}/: record.json parse error")
             continue
         status = rec.get("custom", {}).get("status", "")
         if status == "included" and d.name not in ingest_pmids:
@@ -309,6 +321,7 @@ def _check7(config: dict, db_root: Path, results: list[dict]):
             with open(rec_file) as f:
                 rec = json.load(f)
         except Exception:
+            warnings.append(f"db/{d.name}/: record.json parse error")
             continue
         m = rec.get("custom", {}).get("materials", {})
         rec_model = m.get("embeddings_model", "")
@@ -468,6 +481,7 @@ def _check13(config: dict, db_root: Path, results: list[dict]):
             with open(rec_file) as f:
                 rec = json.load(f)
         except Exception:
+            warnings.append(f"db/{d.name}/: record.json parse error")
             continue
         if rec.get("custom", {}).get("materials", {}).get("fulltext") != "external":
             continue
@@ -487,7 +501,7 @@ def _check14(db_root: Path, deferred_root: Path, staging_root: Path,
         return
 
     last_event_by_pmid: dict[str, dict] = {}
-    for ev in read_events(events_path):
+    for ev in read_events(events_path, on_error=_warn_malformed_events(warnings)):
         if ev.get("kind") in ("defer", "ingest", "discard", "revisit") and "pmid" in ev:
             last_event_by_pmid[ev["pmid"]] = ev
 

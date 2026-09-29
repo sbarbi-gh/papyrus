@@ -86,27 +86,34 @@ def cascade_search(
     chunks_meta: list[dict],
     top_k: int = 10,
     threshold: float = 0.5,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, list[dict]]:
+    """Cascade over concepts → distillations → chunks.
+
+    Returns (top_scores, top_meta) where top_meta holds the metadata dicts of
+    the winning kind's top hits. The returned indices are relative to the
+    winning kind's sub-array only, so the metas are resolved here instead of
+    being indexed against a concatenated list by the caller (issue #3-C).
+    """
     if len(concepts_vectors) > 0:
         scores = cosine_scores(query_vec, concepts_vectors)
         best = float(scores.max()) if len(scores) > 0 else 0.0
         if best >= threshold:
             top_idx = np.argsort(scores)[-top_k:][::-1]
-            return scores[top_idx], top_idx
+            return scores[top_idx], [concepts_meta[i] for i in top_idx]
 
     if len(distillations_vectors) > 0:
         scores = cosine_scores(query_vec, distillations_vectors)
         best = float(scores.max()) if len(scores) > 0 else 0.0
         if best >= threshold:
             top_idx = np.argsort(scores)[-top_k:][::-1]
-            return scores[top_idx], top_idx
+            return scores[top_idx], [distillations_meta[i] for i in top_idx]
 
     if len(chunks_vectors) > 0:
         scores = cosine_scores(query_vec, chunks_vectors)
         top_idx = np.argsort(scores)[-top_k:][::-1]
-        return scores[top_idx], top_idx
+        return scores[top_idx], [chunks_meta[i] for i in top_idx]
 
-    return np.array([]), np.array([], dtype=np.int64)
+    return np.array([]), []
 
 
 def split_by_kind(vectors: np.ndarray, meta: list[dict]) -> dict[str, tuple[np.ndarray, list[dict]]]:

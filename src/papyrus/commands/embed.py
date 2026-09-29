@@ -189,7 +189,16 @@ def _embed_chunks(kb_root, record_dir, rec, provider, model, dims, pmid):
     with open(ci_path) as f:
         ci = json.load(f)
     chunk_defs = ci.get("chunks", [])
-    raw_texts = [fulltext[cd["start_byte"] : cd["end_byte"]] for cd in chunk_defs]
+    if chunk_defs and any("start_char" not in cd for cd in chunk_defs):
+        console.print(
+            f"[red]chunk_index.json for PMID {pmid} has no character offsets "
+            "(pre-#3-D byte offsets). Run 'papyrus convert' to regenerate it "
+            "before embedding.[/red]"
+        )
+        raise typer.Exit(code=2)
+    # Slicing the str with the stored character spans returns exactly the
+    # chunk text that produced chunk_index.json (issue #3-D).
+    raw_texts = [fulltext[cd["start_char"] : cd["end_char"]] for cd in chunk_defs]
     nonempty_idx = [i for i, t in enumerate(raw_texts) if t.strip()]
     texts = [raw_texts[i] for i in nonempty_idx]
     skipped = len(raw_texts) - len(texts)
