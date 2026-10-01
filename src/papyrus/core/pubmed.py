@@ -169,6 +169,7 @@ def _parse_pubmed_article(pa: ET.Element) -> dict[str, Any] | None:
     issn_list: list[str] = []
     volume = ""
     issue = ""
+    year = None
     if journal_el is not None:
         jt = journal_el.find("Title")
         if jt is not None and jt.text:
