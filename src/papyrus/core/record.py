@@ -33,6 +33,11 @@ def create_record(
         "issued": _make_issued(year),
         "DOI": enrichment.get("doi", ""),
         "container-title": journal or "",
+        "volume": enrichment.get("volume", "") or "",
+        "issue": enrichment.get("issue", "") or "",
+        "page": enrichment.get("pages", "") or "",
+        "ISSN": enrichment.get("issn", []),
+        "container-title-short": enrichment.get("journal_abbrev", "") or "",
         "custom": {
             "pmid": pmid,
             "status": status,

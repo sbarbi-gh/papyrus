@@ -165,20 +165,50 @@ def _parse_pubmed_article(pa: ET.Element) -> dict[str, Any] | None:
 
     journal_el = article_el.find("Journal")
     journal_title = ""
+    journal_abbrev = ""
+    issn_list: list[str] = []
+    volume = ""
+    issue = ""
     if journal_el is not None:
         jt = journal_el.find("Title")
         if jt is not None and jt.text:
             journal_title = jt.text.strip()
-
-    year = None
-    if journal_el is not None:
+        ja = journal_el.find("ISOAbbreviation")
+        if ja is not None and ja.text:
+            journal_abbrev = ja.text.strip()
+        for issn_el in journal_el.findall("ISSN"):
+            if issn_el.text and issn_el.text.strip():
+                issn_list.append(issn_el.text.strip())
         ji = journal_el.find("JournalIssue")
         if ji is not None:
+            vol_el = ji.find("Volume")
+            if vol_el is not None and vol_el.text:
+                volume = vol_el.text.strip()
+            iss_el = ji.find("Issue")
+            if iss_el is not None and iss_el.text:
+                issue = iss_el.text.strip()
             pd = ji.find("PubDate")
             if pd is not None:
                 yr = pd.find("Year")
                 if yr is not None and yr.text:
                     year = yr.text.strip()
+
+    # Pagination: prefer MedlinePgn (e.g. "10770-5"), else StartPage-EndPage.
+    pages = ""
+    pag_el = article_el.find("Pagination")
+    if pag_el is not None:
+        mpg = pag_el.find("MedlinePgn")
+        if mpg is not None and mpg.text and mpg.text.strip():
+            pages = mpg.text.strip()
+        else:
+            sp = pag_el.find("StartPage")
+            ep = pag_el.find("EndPage")
+            start = sp.text.strip() if sp is not None and sp.text else ""
+            end = ep.text.strip() if ep is not None and ep.text else ""
+            if start and end:
+                pages = f"{start}-{end}"
+            elif start:
+                pages = start
 
     doi = ""
     pubmed_data = pa.find(".//PubmedData")
@@ -205,6 +235,11 @@ def _parse_pubmed_article(pa: ET.Element) -> dict[str, Any] | None:
         "abstract": abstract,
         "authors": authors,
         "journal": journal_title,
+        "journal_abbrev": journal_abbrev,
+        "issn": issn_list,
+        "volume": volume,
+        "issue": issue,
+        "pages": pages,
         "year": year,
         "doi": doi,
         "references": references,

@@ -15,6 +15,7 @@ from papyrus.commands.inbox import app as inbox_app
 from papyrus.commands.revisit import app as revisit_app
 from papyrus.commands.search import app as search_app
 from papyrus.commands.notify import app as notify_app
+from papyrus.commands.refresh import app as refresh_app
 from papyrus.commands.store import app as store_app
 from papyrus.commands.update import app as update_app
 
@@ -32,6 +33,7 @@ app.add_typer(embed_app)
 app.add_typer(index_app)
 app.add_typer(search_app)
 app.add_typer(notify_app)
+app.add_typer(refresh_app)
 app.add_typer(store_app, name="store", help="Manage PDF external storage")
 app.add_typer(inbox_app, name="inbox", help="Manage pdfinbox/ directory")
 

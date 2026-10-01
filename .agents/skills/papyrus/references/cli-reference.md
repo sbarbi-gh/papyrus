@@ -161,6 +161,23 @@ Regenerate `concepts/index.json` from authoritative sources.
 
 ---
 
+## `papyrus refresh-meta`
+
+```
+papyrus refresh-meta [<pmid>] [--dry-run]
+```
+
+Backfill bibliographic fields (volume, issue, page, ISSN,
+container-title-short) for existing records in `db/` from PubMed. With no
+arguments, processes every record; pass a single PMID to refresh only it.
+Only fills fields that are currently missing or empty — never overwrites
+existing values, and never touches `custom.*`, status, materials, or
+concepts. Writes one `refresh-meta` event per updated record.
+
+**Exit codes:** 0 (success; also when nothing to update), 2 (bad usage)
+
+---
+
 ## `papyrus check`
 
 ```

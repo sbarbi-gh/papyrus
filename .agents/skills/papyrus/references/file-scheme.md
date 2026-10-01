@@ -50,6 +50,11 @@ with export.
   "issued": {"date-parts": [[2024, 3, 15]]},
   "DOI": "10.xxxx",
   "container-title": "Nature",
+  "container-title-short": "Nature",
+  "volume": "621",
+  "issue": "7978",
+  "page": "789-795",
+  "ISSN": ["1476-4687"],
   "custom": {
     "pmid": "38471234",
     "status": "included",
@@ -102,6 +107,11 @@ Emitted by `papyrus update` into `staging/<ts>/<pmid>/candidate.json`.
   "abstract": "We show that gene X ...",
   "authors": [{"family": "Smith", "given": "J."}],
   "journal": "Nature",
+  "journal_abbrev": "Nature",
+  "issn": ["1476-4687"],
+  "volume": "621",
+  "issue": "7978",
+  "pages": "789-795",
   "year": "2024",
   "doi": "10.xxxx",
   "references": ["38559001", "37990022"]

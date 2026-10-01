@@ -70,6 +70,7 @@ papyrus check   # verify an existing KB is healthy
 | `papyrus embed <pmid>` | Embed chunks or distillation | `--all`, `--pending`, `--kind` |
 | `papyrus index` | Regenerate concepts/index.json | — |
 | `papyrus check` | Run 13 integrity checks | `--json` |
+| `papyrus refresh-meta [<pmid>]` | Backfill volume/issue/pages/ISSN for records | `--dry-run` |
 | `papyrus search <query>` | Semantic search | `--kind`, `--top-k`, `--cite` |
 | `papyrus store push \| pull \| check` | Manage external PDF storage | — |
 | `papyrus inbox list \| clean` | Manage pdfinbox/ staging dir | `--delete`, `--dry-run` |
