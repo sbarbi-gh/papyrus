@@ -37,14 +37,14 @@ Papyrus requires **Python 3.11+** and is managed with [`uv`](https://docs.astral
 Add it to a Python project (a KB is one) and run it through `uv`:
 
 ```bash
-uv add git+https://git.sbarbi.it/sbarbit/papyrus.git
+uv add git+https://github.com/sbarbi-gh/papyrus.git
 uv run papyrus --help
 ```
 
 Or clone and run from source:
 
 ```bash
-git clone https://git.sbarbi.it/sbarbit/papyrus.git
+git clone https://github.com/sbarbi-gh/papyrus.git
 cd papyrus
 uv sync
 uv run papyrus --help
